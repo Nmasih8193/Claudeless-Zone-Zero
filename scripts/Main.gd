@@ -1,5 +1,6 @@
 extends Node3D
-## Builds the world in code, wires systems together, owns game flow, camera, shake and time effects.
+## Builds the world, wires systems together, owns game flow, the input map, the camera rig,
+## time effects (hit-stop / slow-mo) and scoring.
 
 enum Phase { START, FIGHT, END }
 
@@ -7,11 +8,11 @@ var phase: Phase = Phase.START
 var player: Player
 var boss: Boss
 var hud: HUD
-var camera: Camera3D
+var camera: CameraRig
 var sfx: Sfx
+var post: PostFx
 
-var _cam_yaw: float = 0.0
-var _shake: float = 0.0
+var _alt_held: bool = false
 var _fx_until_ms: int = 0
 var _fx_scale: float = 1.0
 
@@ -31,27 +32,29 @@ var ults: int = 0
 func _ready() -> void:
 	process_priority = 10          # run after Player/Boss so the camera sees final positions
 	get_viewport().msaa_3d = Viewport.MSAA_4X
+	get_viewport().use_debanding = true
 	_setup_input()
-	_build_environment()
-	_build_arena()
+	add_child(Arena.new())
 
-	camera = Camera3D.new()
-	camera.fov = GameConfig.CAM_FOV
+	camera = CameraRig.new()
 	add_child(camera)
 	camera.current = true
 
 	player = Player.new()
 	player.position = Vector3(0.0, 0.0, 9.0)
-	player.process_mode = Node.PROCESS_MODE_DISABLED
+	player.locked = true                       # idles on the title screen until the fight starts
 	boss = Boss.new()
 	boss.position = Vector3(0.0, 0.0, -6.0)
-	boss.process_mode = Node.PROCESS_MODE_DISABLED
 	player.boss = boss
 	boss.target = player
 	add_child(player)
 	add_child(boss)
+	boss.face_instant(player.global_position)
+	post = PostFx.new()
+	add_child(post)
 	hud = HUD.new()
 	add_child(hud)
+	hud.player = player
 	sfx = Sfx.new()
 	add_child(sfx)
 	boss.sfx_requested.connect(func(n: String) -> void: sfx.play(n))
@@ -59,172 +62,97 @@ func _ready() -> void:
 	sfx.play_music()
 
 	boss.damage_taken.connect(_on_boss_damaged)
-	boss.phase_changed.connect(func(p: int) -> void: hud.show_banner("PHASE %d" % p))
+	boss.phase_changed.connect(_on_phase_changed)
 	boss.stunned.connect(_on_boss_stunned)
-	boss.stun_ended.connect(func() -> void: player.chain_ready = false)
 	boss.shake_requested.connect(_add_shake)
 	boss.defeated.connect(func() -> void: _end_fight("VICTORY"))
+	boss.danger_warning.connect(_on_danger)
+	boss.blasted.connect(_on_blasted)
 	player.shake_requested.connect(_add_shake)
 	player.time_fx_requested.connect(time_fx)
+	player.time_fx_cancel.connect(_cancel_time_fx)
 	player.perfect_dodged.connect(_on_perfect_dodge)
 	player.points_awarded.connect(_on_points)
 	player.damaged.connect(_on_player_damaged)
 	player.ultimate_cast.connect(_on_ultimate)
 	player.died.connect(func() -> void: _end_fight("DEFEAT"))
+	player.chain_prompt.connect(_on_chain_prompt)
+	player.assist_prompt.connect(func(t: String) -> void: hud.show_assist(t))
+	player.cinematic_requested.connect(func(k: String, l: float) -> void: camera.cinematic(k, l))
+	hud.overlay_changed.connect(func(_open: bool) -> void: _update_mouse())
+	hud.action_requested.connect(_on_hud_action)
 
 	player.update_lock_yaw()
-	_cam_yaw = player.lock_yaw
-	_update_camera(1.0)
+	camera.setup(player, boss)
 	hud.show_start()
+	hud.sync(player, boss, time_left)
 	_refresh_score()
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
-# ------------------------------------------------------------------ input map
+# ------------------------------------------------------------------ input map (ZZZ PC defaults + Xbox pad)
 func _setup_input() -> void:
-	_key("move_left", [KEY_A])
-	_key("move_right", [KEY_D])
-	_key("move_forward", [KEY_W])
-	_key("move_back", [KEY_S])
-	_key("attack", [KEY_J], true)
-	_key("dodge", [KEY_K, KEY_SHIFT])
-	_key("ex", [KEY_L])
-	_key("ultimate", [KEY_SPACE])
-	_key("chain", [KEY_F])
-	_key("swap_1", [KEY_1])
-	_key("swap_2", [KEY_2])
-	_key("swap_3", [KEY_3])
-	_key("swap_prev", [KEY_Q])
-	_key("swap_next", [KEY_E])
-	_key("pause", [KEY_ESCAPE])
-	_key("start", [KEY_ENTER, KEY_KP_ENTER])
-	_key("restart", [KEY_R])
+	var stick := 0.2
+	_bind("move_left", [KEY_A], [], [[JOY_AXIS_LEFT_X, -1.0]], [], stick)
+	_bind("move_right", [KEY_D], [], [[JOY_AXIS_LEFT_X, 1.0]], [], stick)
+	_bind("move_forward", [KEY_W], [], [[JOY_AXIS_LEFT_Y, -1.0]], [], stick)
+	_bind("move_back", [KEY_S], [], [[JOY_AXIS_LEFT_Y, 1.0]], [], stick)
+	_bind("cam_left", [], [], [[JOY_AXIS_RIGHT_X, -1.0]], [], stick)
+	_bind("cam_right", [], [], [[JOY_AXIS_RIGHT_X, 1.0]], [], stick)
+	_bind("cam_up", [], [], [[JOY_AXIS_RIGHT_Y, -1.0]], [], stick)
+	_bind("cam_down", [], [], [[JOY_AXIS_RIGHT_Y, 1.0]], [], stick)
+	_bind("attack", [], [MOUSE_BUTTON_LEFT], [], [JOY_BUTTON_X])
+	_bind("dodge", [KEY_SHIFT], [MOUSE_BUTTON_RIGHT], [], [JOY_BUTTON_A])
+	_bind("special", [KEY_E], [], [], [JOY_BUTTON_Y])
+	_bind("ultimate", [KEY_Q], [], [[JOY_AXIS_TRIGGER_RIGHT, 1.0]])
+	_bind("swap_next", [KEY_SPACE], [], [], [JOY_BUTTON_RIGHT_SHOULDER])
+	_bind("swap_prev", [KEY_C], [], [], [JOY_BUTTON_LEFT_SHOULDER])
+	_bind("chain_left", [KEY_Q], [MOUSE_BUTTON_LEFT], [], [JOY_BUTTON_LEFT_SHOULDER, JOY_BUTTON_X])
+	_bind("chain_right", [KEY_E], [MOUSE_BUTTON_RIGHT], [], [JOY_BUTTON_RIGHT_SHOULDER, JOY_BUTTON_Y])
+	_bind("lock_on", [], [MOUSE_BUTTON_MIDDLE], [], [JOY_BUTTON_RIGHT_STICK])
+	_bind("summon_mouse", [KEY_ALT])
+	_bind("interact", [KEY_F, KEY_ENTER, KEY_KP_ENTER], [], [], [JOY_BUTTON_A])
+	_bind("restart", [KEY_R])
+	_bind("pause", [KEY_ESCAPE], [], [], [JOY_BUTTON_START])
+	_bind("handbook", [KEY_G], [], [], [JOY_BUTTON_BACK])
+	_bind("interknot", [KEY_J], [], [], [JOY_BUTTON_DPAD_LEFT])
+	_bind("squad", [KEY_T])
+	_bind("wheel", [KEY_TAB], [], [[JOY_AXIS_TRIGGER_LEFT, 1.0]])
 
-func _key(action: String, keys: Array, with_mouse: bool = false) -> void:
+func _bind(action: String, keys: Array = [], mouse: Array = [], axes: Array = [], buttons: Array = [], deadzone: float = 0.5) -> void:
 	if not InputMap.has_action(action):
-		InputMap.add_action(action)
+		InputMap.add_action(action, deadzone)
 	for k: int in keys:
 		var ev := InputEventKey.new()
 		ev.physical_keycode = k as Key
 		InputMap.action_add_event(action, ev)
-	if with_mouse:
-		var m := InputEventMouseButton.new()
-		m.button_index = MOUSE_BUTTON_LEFT
-		InputMap.action_add_event(action, m)
+	for m: int in mouse:
+		var mb := InputEventMouseButton.new()
+		mb.button_index = m as MouseButton
+		InputMap.action_add_event(action, mb)
+	for a: Array in axes:
+		var jm := InputEventJoypadMotion.new()
+		jm.axis = int(a[0]) as JoyAxis
+		jm.axis_value = float(a[1])
+		InputMap.action_add_event(action, jm)
+	for b: int in buttons:
+		var jb := InputEventJoypadButton.new()
+		jb.button_index = b as JoyButton
+		InputMap.action_add_event(action, jb)
 
-# ------------------------------------------------------------------ world
-func _build_environment() -> void:
-	var env := Environment.new()
-	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.62, 0.72, 0.82)
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.7, 0.78, 0.9)
-	env.ambient_light_energy = 0.7
-	env.fog_enabled = true
-	env.fog_light_color = Color(0.64, 0.74, 0.84)
-	env.fog_density = 0.012
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.glow_enabled = true
-	env.glow_intensity = 0.8
-	env.glow_bloom = 0.1
-	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
-	var we := WorldEnvironment.new()
-	we.environment = env
-	add_child(we)
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-55.0, 35.0, 0.0)
-	sun.light_color = Color(1.0, 0.97, 0.92)
-	sun.light_energy = 1.1
-	sun.shadow_enabled = true
-	sun.directional_shadow_max_distance = 70.0
-	add_child(sun)
-
-func _scene_mat(c: Color) -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.albedo_color = c
-	m.roughness = 0.9
-	return m
-
-func _build_arena() -> void:
-	var floor_mesh := MeshInstance3D.new()
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = GameConfig.ARENA_RADIUS + 4.0
-	cyl.bottom_radius = GameConfig.ARENA_RADIUS + 4.0
-	cyl.height = 0.4
-	cyl.radial_segments = 64
-	cyl.rings = 1
-	floor_mesh.mesh = cyl
-	floor_mesh.material_override = _scene_mat(Color(0.42, 0.47, 0.52))
-	floor_mesh.position.y = -0.2
-	add_child(floor_mesh)
-
-	var ground := MeshInstance3D.new()
-	var big := CylinderMesh.new()
-	big.top_radius = 90.0
-	big.bottom_radius = 90.0
-	big.height = 0.2
-	big.radial_segments = 32
-	big.rings = 1
-	ground.mesh = big
-	ground.material_override = _scene_mat(Color(0.3, 0.34, 0.4))
-	ground.position.y = -0.6
-	add_child(ground)
-
-	var edge := MeshInstance3D.new()
-	var tor := TorusMesh.new()
-	tor.inner_radius = GameConfig.ARENA_RADIUS + 0.8
-	tor.outer_radius = GameConfig.ARENA_RADIUS + 1.2
-	edge.mesh = tor
-	edge.material_override = Fx.glow_mat(Color(0.3, 0.85, 1.0), 2.0)
-	add_child(edge)
-	for r: float in [8.0, 15.0]:
-		var g := MeshInstance3D.new()
-		var t2 := TorusMesh.new()
-		t2.inner_radius = r - 0.05
-		t2.outer_radius = r + 0.05
-		g.mesh = t2
-		g.material_override = _scene_mat(Color(0.3, 0.34, 0.4))
-		g.position.y = 0.02
-		add_child(g)
-
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 1337
-	var mats: Array = [_scene_mat(Color(0.35, 0.4, 0.45)), _scene_mat(Color(0.5, 0.36, 0.3)), _scene_mat(Color(0.28, 0.33, 0.38))]
-	for i in 28:
-		var ang := TAU * float(i) / 28.0 + rng.randf_range(-0.1, 0.1)
-		var rad := rng.randf_range(40.0, 54.0)
-		var size := Vector3(rng.randf_range(2.0, 6.0), rng.randf_range(4.0, 18.0), rng.randf_range(2.0, 6.0))
-		var m := MeshInstance3D.new()
-		var b := BoxMesh.new()
-		b.size = size
-		m.mesh = b
-		m.material_override = mats[i % mats.size()]
-		m.position = Vector3(cos(ang) * rad, size.y * 0.5 - 0.3, sin(ang) * rad)
-		m.rotation = Vector3(rng.randf_range(-0.05, 0.05), rng.randf_range(0.0, TAU), rng.randf_range(-0.08, 0.08))
-		add_child(m)
-	for i in 6:
-		var ang := TAU * float(i) / 6.0 + 0.3
-		var sign_mesh := MeshInstance3D.new()
-		var sb := BoxMesh.new()
-		sb.size = Vector3(7.0, 1.4, 0.3)
-		sign_mesh.mesh = sb
-		sign_mesh.material_override = Fx.glow_mat(Color(1.0, 0.35, 0.75) if i % 2 == 0 else Color(0.3, 0.9, 1.0), 2.5)
-		add_child(sign_mesh)
-		var pos := Vector3(cos(ang) * 36.0, 9.0 + float(i % 3) * 2.5, sin(ang) * 36.0)
-		sign_mesh.look_at_from_position(pos, Vector3(0.0, pos.y, 0.0), Vector3.UP)
+## Mouse is captured for camera control during the fight; ALT (held) or any menu shows it.
+func _update_mouse() -> void:
+	var fighting := phase == Phase.FIGHT
+	if hud.overlay == "wheel":
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		camera.input_enabled = false
+		return
+	var show_cursor := hud.overlay != "" or _alt_held or not fighting
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if show_cursor else Input.MOUSE_MODE_CAPTURED
+	camera.input_enabled = fighting and hud.overlay == ""
 
 # ------------------------------------------------------------------ camera / fx
-func _update_camera(delta: float) -> void:
-	_cam_yaw = lerp_angle(_cam_yaw, player.lock_yaw, 1.0 - exp(-5.0 * delta))
-	player.view_yaw = _cam_yaw
-	var back := Vector3(sin(_cam_yaw), 0.0, cos(_cam_yaw))
-	var p := player.global_position
-	var desired := p + back * GameConfig.CAM_DIST + Vector3(0.0, GameConfig.CAM_HEIGHT, 0.0)
-	camera.global_position = camera.global_position.lerp(desired, 1.0 - exp(-9.0 * delta))
-	var focus := p.lerp(boss.global_position, 0.3) + Vector3(0.0, 2.2, 0.0)
-	if camera.global_position.distance_to(focus) > 0.5:
-		camera.look_at(focus, Vector3.UP)
-
 func _add_shake(strength: float) -> void:
-	_shake = maxf(_shake, strength)
+	camera.add_trauma(clampf(strength * 1.4, 0.0, 1.0))
 
 ## Slow-mo / hit-stop in REAL time. A stronger (lower) scale is never overridden by a weaker one.
 func time_fx(time_scale: float, duration: float) -> void:
@@ -235,37 +163,66 @@ func time_fx(time_scale: float, duration: float) -> void:
 	_fx_until_ms = now + int(duration * 1000.0)
 	Engine.time_scale = time_scale
 
+func _cancel_time_fx() -> void:
+	Engine.time_scale = 1.0
+	_fx_scale = 1.0
+	_fx_until_ms = 0
+
 # ------------------------------------------------------------------ flow
 func _unhandled_input(event: InputEvent) -> void:
-	if phase == Phase.START and event.is_action_pressed("start"):
-		_start_fight()
-	elif phase == Phase.END and event.is_action_pressed("restart"):
-		Engine.time_scale = 1.0
-		get_tree().paused = false
-		get_tree().reload_current_scene()
+	if camera.handle_input(event):
+		return
+	match phase:
+		Phase.START:
+			if event.is_action_pressed("interact"):
+				_start_fight()
+		Phase.END:
+			if event.is_action_pressed("restart") or event.is_action_pressed("interact"):
+				_restart()
+		Phase.FIGHT:
+			if event.is_action_pressed("lock_on"):
+				camera.toggle_lock()
+				hud.set_lock(camera.locked)
+				sfx.play("swap", -6.0)
+			elif event.is_action_pressed("summon_mouse"):
+				_alt_held = true
+				_update_mouse()
+			elif event.is_action_released("summon_mouse"):
+				_alt_held = false
+				_update_mouse()
+			elif event is InputEventMouseButton and (event as InputEventMouseButton).pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED and not _alt_held:
+				_update_mouse()
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_alt_held = false
 
 func _start_fight() -> void:
 	phase = Phase.FIGHT
-	player.process_mode = Node.PROCESS_MODE_INHERIT
-	boss.process_mode = Node.PROCESS_MODE_INHERIT
+	player.locked = false
+	boss.active = true
 	hud.clear_message()
 	hud.can_pause = true
 	hud.show_banner("FIGHT!")
 	sfx.play("start")
+	camera.in_fight = true
+	camera.recenter()
+	_update_mouse()
+
+func _restart() -> void:
+	Engine.time_scale = 1.0
+	get_tree().paused = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	get_tree().reload_current_scene()
 
 func _process(delta: float) -> void:
 	if Engine.time_scale != 1.0 and Time.get_ticks_msec() >= _fx_until_ms:
-		Engine.time_scale = 1.0
-		_fx_scale = 1.0
+		_cancel_time_fx()
 	var real := delta / maxf(Engine.time_scale, 0.01)
-	if _shake > 0.0:
-		camera.h_offset = randf_range(-1.0, 1.0) * _shake
-		camera.v_offset = randf_range(-1.0, 1.0) * _shake
-		_shake = maxf(_shake - 2.2 * real, 0.0)
-	else:
-		camera.h_offset = 0.0
-		camera.v_offset = 0.0
-	_update_camera(minf(real, 0.05))
+	player.view_yaw = camera.yaw
+	camera.update(minf(real, 0.05))
+	var c := player.chars[player.active]
+	post.low_hp = clampf((0.3 - c.hp / c.max_hp) / 0.3, 0.0, 1.0) if phase == Phase.FIGHT else 0.0
 	if Engine.get_process_frames() % 3 == 0:
 		hud.sync(player, boss, time_left)
 	if phase != Phase.FIGHT:
@@ -315,43 +272,80 @@ func _on_boss_damaged(amount: float) -> void:
 	dmg_score += amount * GameConfig.SCORE_PER_DAMAGE * _combo_mult()
 	_refresh_score()
 
+func _on_phase_changed(p: int) -> void:
+	hud.show_banner("PHASE %d" % p)
+	post.danger()
+
+func _on_danger(text: String) -> void:
+	hud.show_danger(text)
+	post.danger()
+
+func _on_blasted() -> void:
+	hud.flash(Color(1.0, 0.8, 0.95), 0.85)
+	post.ult(0.6)
+
+func _on_hud_action(action: String) -> void:
+	if action == "retry":
+		_restart()
+
 func _on_boss_stunned() -> void:
-	player.chain_ready = true
 	hud.show_banner("STUNNED!")
+	player.open_chain_prompt(true)
+
+func _on_chain_prompt(left: int, right: int) -> void:
+	hud.show_chain(left, right)
+	post.set_chain(left >= 0 or right >= 0)
 
 func _on_perfect_dodge() -> void:
 	perfect_dodges += 1
 	hud.show_banner("PERFECT DODGE!")
+	post.perfect(GameConfig.PERFECT_DURATION)
+	camera.kick_fov(-6.0)
 
 func _on_points(pts: int, label: String) -> void:
 	bonus_points += float(pts)
-	if label == "Assist Attack":
+	if label.ends_with("Assist"):
 		assists += 1
 	elif label == "Chain Attack":
 		chains += 1
+		post.ult(0.4)
+	if label == "Defensive Assist":
+		hud.show_banner("DEFENSIVE ASSIST!")
+		post.hit()
 	hud.show_points(pts, label)
 	_refresh_score()
 
 func _on_player_damaged(amount: float) -> void:
 	damage_taken += amount
 	combo = 0
+	post.hit()
+	hud.flash(Color(1.0, 0.15, 0.1), 0.25)
 	_refresh_score()
 
 func _on_ultimate(color: Color) -> void:
 	ults += 1
 	hud.flash(color)
+	post.ult(0.7)
+	camera.kick_fov(8.0)
 
 func _end_fight(outcome: String) -> void:
 	if phase == Phase.END:
 		return
 	phase = Phase.END
 	hud.can_pause = false
-	Engine.time_scale = 1.0
-	_fx_until_ms = 0
+	_cancel_time_fx()
 	player.locked = true
-	boss.process_mode = Node.PROCESS_MODE_DISABLED
-	get_tree().call_group("projectiles", "queue_free")
 	var victory := outcome == "VICTORY"
+	boss.active = false
+	get_tree().call_group("projectiles", "queue_free")
+	get_tree().call_group("hazards", "cancel")
+	camera.in_fight = false
+	camera.locked = false
+	hud.set_lock(false)
+	hud.show_chain(-1, -1)
+	hud.show_assist("")
+	post.set_chain(false)
+	_update_mouse()
 	if victory:
 		bonus_points += time_left * GameConfig.SCORE_PER_SEC_LEFT
 	var s := _score()
