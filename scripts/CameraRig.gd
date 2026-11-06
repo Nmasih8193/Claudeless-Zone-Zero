@@ -188,6 +188,16 @@ func update(dt: float) -> void:
 		var floor_d := (0.4 - pv.y) / back.y
 		if floor_d > 0.0:
 			d = minf(d, floor_d)
+	# arena wall: near the edge, tilt to look down over the barriers before pulling in
+	var reach := _wall_reach(pv, back)
+	if reach < d:
+		var k := clampf(1.0 - reach / d, 0.0, 1.0)
+		p = lerpf(p, minf(p, -0.95), k)
+		rot = Basis.from_euler(Vector3(p, y, 0.0))
+		back = rot * Vector3(0.0, 0.0, 1.0)
+		if back.y < -0.01:
+			d = minf(d, maxf((0.4 - pv.y) / back.y, 0.5))
+		d = minf(d, maxf(_wall_reach(pv, back), 2.2))
 	var block := d
 	if boss_alive and _cine_t <= 0.0:
 		var bp := boss.global_position
@@ -214,6 +224,18 @@ func update(dt: float) -> void:
 	_fov_kick = lerpf(_fov_kick, 0.0, 1.0 - exp(-5.0 * dt))
 	fov = GameConfig.CAM_FOV + _sprint_fov + _fov_kick + fov_cine
 	_apply(y, p, d, pv, nr * amt * 0.045)
+
+## How far the camera can back away from pv along `back` before leaving the barrier ring.
+func _wall_reach(pv: Vector3, back: Vector3) -> float:
+	var wall_r := GameConfig.ARENA_RADIUS + 6.6        # inside the barrier ring (Arena.gd)
+	var pxz := Vector2(pv.x, pv.z)
+	var bxz := Vector2(back.x, back.z)
+	var qa := bxz.length_squared()
+	var qc := pxz.length_squared() - wall_r * wall_r
+	if qa < 0.0001 or qc >= 0.0:
+		return 999.0
+	var qb := 2.0 * pxz.dot(bxz)
+	return (-qb + sqrt(qb * qb - 4.0 * qa * qc)) / (2.0 * qa)
 
 func _apply(y: float, p: float, d: float, pv: Vector3, roll: float) -> void:
 	var b := Basis.from_euler(Vector3(p, y, roll))

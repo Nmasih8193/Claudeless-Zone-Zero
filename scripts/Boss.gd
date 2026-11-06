@@ -693,6 +693,9 @@ func _atk_charge(delta: float) -> void:
 		h.width = d["width"]
 		_add_hz(h)
 		_charge_to = global_position + _face_dir * maxf(h.length - GameConfig.BOSS_RADIUS, 2.0)
+		_charge_from = global_position
+		_charge_hit = false
+		_charge_tid = Hazard.new_id()
 		sfx_requested.emit("warn")
 	_turn_toward_dir(_face_dir, delta, 8.0)
 	if _at(tele - GameConfig.PERFECT_WINDOW):
@@ -705,8 +708,6 @@ func _atk_charge(delta: float) -> void:
 		if flat.length() > lim:
 			flat = flat.normalized() * lim
 			_charge_to = Vector3(flat.x, 0.0, flat.y)
-		_charge_hit = false
-		_charge_tid = Hazard.new_id()
 		shake_requested.emit(0.25)
 		sfx_requested.emit("dash")
 	if _t >= tele and _t < tele + time:

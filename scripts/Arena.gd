@@ -122,7 +122,7 @@ func _build_barriers() -> void:
 	var body := Fx.toon_mat(Color(0.62, 0.6, 0.58), 0.0, 0.25)
 	var stripe := Fx.glow_mat(Color(1.0, 0.55, 0.12), 2.2)
 	var n := 22
-	var r := GameConfig.ARENA_RADIUS + 2.2
+	var r := GameConfig.ARENA_RADIUS + 7.5          # leaves room for the orbit camera
 	for i in n:
 		if i % 7 == 3:
 			continue
@@ -140,7 +140,7 @@ func _build_lamps() -> void:
 	var metal := Fx.toon_mat(Color(0.16, 0.16, 0.2), 0.0, 0.3)
 	for i in 8:
 		var a := TAU * float(i) / 8.0 + 0.2
-		var r := GameConfig.ARENA_RADIUS + 4.6
+		var r := GameConfig.ARENA_RADIUS + 5.6
 		var base := Vector3(cos(a) * r, 0.0, sin(a) * r)
 		var inward := -base.normalized()
 		var col: Color = Color(1.0, 0.78, 0.5) if i % 2 == 0 else Color(0.45, 0.85, 1.0)
@@ -243,7 +243,7 @@ func _build_props() -> void:
 	var spots := [0.6, 1.7, 2.6, 3.9, 5.1]
 	for k in spots.size():
 		var a: float = spots[k]
-		var r := _rng.randf_range(32.0, 36.0)
+		var r := _rng.randf_range(37.0, 40.0)
 		var base := Vector3(cos(a) * r, 0.0, sin(a) * r)
 		var stack := _rng.randi_range(1, 3)
 		for j in stack:

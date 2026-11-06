@@ -243,13 +243,13 @@ func _build_chain() -> void:
 	_chain_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_chain_root.visible = false
 	add_child(_chain_root)
-	var title := _label("CHAIN ATTACK", Vector2(340.0, 250.0), 52, GOLD, _chain_root)
+	var title := _label("CHAIN ATTACK", Vector2(340.0, 272.0), 52, GOLD, _chain_root)
 	title.size = Vector2(600.0, 70.0)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	var keys := ["LMB  /  Q", "RMB  /  E"]
 	for k in 2:
 		var p := Panel.new()
-		p.position = Vector2(400.0 + float(k) * 330.0, 330.0)
+		p.position = Vector2(400.0 + float(k) * 330.0, 345.0)
 		p.size = Vector2(150.0, 190.0)
 		p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		p.add_theme_stylebox_override("panel", _style(Color(0.05, 0.06, 0.1, 0.9), 10, GOLD, 3))
@@ -266,7 +266,7 @@ func _build_chain() -> void:
 		_chain_faces.append(face)
 		_chain_names.append(nm)
 	_chain_timer = ProgressBar.new()
-	_chain_timer.position = Vector2(440.0, 535.0)
+	_chain_timer.position = Vector2(440.0, 548.0)
 	_chain_timer.size = Vector2(400.0, 8.0)
 	_chain_timer.show_percentage = false
 	_chain_timer.mouse_filter = Control.MOUSE_FILTER_IGNORE

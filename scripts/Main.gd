@@ -85,6 +85,7 @@ func _ready() -> void:
 	player.update_lock_yaw()
 	camera.setup(player, boss)
 	hud.show_start()
+	hud.sync(player, boss, time_left)
 	_refresh_score()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
