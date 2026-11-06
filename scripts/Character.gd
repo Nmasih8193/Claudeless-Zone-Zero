@@ -25,6 +25,8 @@ var ult_rows: Array = []
 var ult_len: float = 2.0
 var assist_rows: Array = []
 var assist_len: float = 0.7
+var chain_rows: Array = []
+var chain_len: float = 1.0
 var stacks: int = 0
 
 func load_stats(d: Dictionary) -> void:
@@ -50,6 +52,8 @@ func load_stats(d: Dictionary) -> void:
 	ult_len = d["ult_len"]
 	assist_rows = d["assist"]
 	assist_len = d["assist_len"]
+	chain_rows = d["chain"]
+	chain_len = d["chain_len"]
 
 func is_alive() -> bool:
 	return hp > 0.0
@@ -63,6 +67,16 @@ func make_steps(rows: Array, mult: float = 1.0) -> Array:
 			"daze": float(r[2]), "freeze": float(r[3]), "shake": float(r[4]), "elem": element,
 		})
 	return out
+
+## Dodge Counter (attack during the perfect-dodge slow-mo): one big, high-daze strike.
+func make_counter_steps() -> Array:
+	var heavy: float = float(combo_damage[combo_damage.size() - 1])
+	return make_steps([[0.1, heavy * 1.5, daze_per_hit * 5.0, freeze_per_hit * 1.5, 0.3]])
+
+## Special Attack (E without enough energy for the EX version).
+func make_special_steps() -> Array:
+	var heavy: float = float(combo_damage[combo_damage.size() - 1])
+	return make_steps([[0.14, heavy * 0.9, daze_per_hit * 2.5, freeze_per_hit, 0.15]])
 
 # ---- Hooks (override) ----
 func on_basic_hit(_ctx: Player, _idx: int) -> void:

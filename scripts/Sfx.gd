@@ -4,7 +4,7 @@ extends Node
 ## small AudioStreamPlayer pool. The fight music is loaded from res://audio/bgm.mp3.
 
 const RATE := 22050
-const POOL := 12
+const POOL := 16
 const MUSIC_PATH := "res://audio/bgm.mp3"
 
 var _streams: Dictionary = {}
@@ -206,3 +206,80 @@ func _build_streams() -> void:
 	b = _blank(0.35)
 	_tone(b, 0.0, 0.3, 440.0, 880.0, 0.45, 6.0)
 	_streams["start"] = _wav(b)
+
+	# ---- boss / combat additions ----
+	b = _blank(0.35)
+	_noise(b, 0.0, 0.33, 0.9, 7.0, 0.3)
+	_tone(b, 0.0, 0.3, 300.0, 80.0, 0.4, 9.0, 2)
+	_streams["swing_heavy"] = _wav(b)
+
+	b = _blank(0.45)
+	_tone(b, 0.0, 0.42, 2600.0, 3400.0, 0.35, 9.0)
+	_tone(b, 0.0, 0.4, 3900.0, 5200.0, 0.2, 11.0)
+	_streams["glint"] = _wav(b)
+
+	b = _blank(0.5)
+	_tone(b, 0.0, 0.48, 1500.0, 1300.0, 0.4, 7.0, 1)
+	_tone(b, 0.05, 0.42, 2250.0, 2000.0, 0.25, 8.0)
+	_streams["glint_red"] = _wav(b)
+
+	b = _blank(1.5)
+	_tone(b, 0.0, 1.4, 95.0, 55.0, 0.7, 1.6, 2)
+	_tone(b, 0.0, 1.4, 142.0, 80.0, 0.35, 1.8, 2)
+	_noise(b, 0.0, 1.4, 0.55, 1.8, 0.18)
+	_streams["roar"] = _wav(b, 0.9)
+
+	b = _blank(0.9)
+	_tone(b, 0.0, 0.85, 70.0, 30.0, 1.0, 3.5)
+	_noise(b, 0.0, 0.8, 0.8, 4.0, 0.12)
+	_streams["quake"] = _wav(b)
+
+	b = _blank(0.6)
+	_noise(b, 0.0, 0.55, 0.7, 4.0, 0.25)
+	_tone(b, 0.0, 0.5, 120.0, 400.0, 0.3, 4.0, 2)
+	_streams["leap"] = _wav(b)
+
+	b = _blank(2.4)
+	_tone(b, 0.0, 2.35, 110.0, 120.0, 0.35, 0.4, 1)
+	_tone(b, 0.0, 2.35, 220.0, 236.0, 0.25, 0.4, 2)
+	_noise(b, 0.0, 2.35, 0.35, 0.5, 0.5)
+	_streams["beam"] = _wav(b)
+
+	b = _blank(1.2)
+	_tone(b, 0.0, 1.15, 150.0, 900.0, 0.35, 0.8, 2)
+	_noise(b, 0.0, 1.15, 0.2, 1.0, 0.3)
+	_streams["charge"] = _wav(b)
+
+	b = _blank(0.4)
+	_noise(b, 0.0, 0.38, 0.9, 5.0, 0.35)
+	_tone(b, 0.0, 0.35, 90.0, 60.0, 0.6, 6.0)
+	_streams["dash"] = _wav(b)
+
+	b = _blank(0.25)
+	_tone(b, 0.0, 0.22, 65.0, 40.0, 0.7, 14.0)
+	_noise(b, 0.0, 0.12, 0.3, 25.0, 0.15)
+	_streams["step"] = _wav(b, 0.5)
+
+	b = _blank(0.4)
+	_noise(b, 0.0, 0.35, 0.7, 10.0, 0.6)
+	_tone(b, 0.0, 0.3, 900.0, 300.0, 0.35, 9.0, 1)
+	_streams["spike"] = _wav(b)
+
+	b = _blank(1.6)
+	_tone(b, 0.0, 1.5, 80.0, 25.0, 1.0, 2.0)
+	_noise(b, 0.0, 1.5, 1.0, 2.5, 0.25)
+	_tone(b, 0.0, 0.4, 1800.0, 600.0, 0.3, 6.0)
+	_streams["blast"] = _wav(b)
+
+	b = _blank(0.6)
+	_tone(b, 0.0, 0.55, 1250.0, 1250.0, 0.45, 6.0)
+	_tone(b, 0.0, 0.55, 1870.0, 1870.0, 0.3, 7.0)
+	_tone(b, 0.0, 0.5, 3100.0, 3100.0, 0.18, 9.0)
+	_noise(b, 0.0, 0.08, 0.7, 40.0)
+	_streams["parry"] = _wav(b)
+
+	b = _blank(0.45)
+	_noise(b, 0.0, 0.4, 0.6, 8.0, 0.4)
+	_tone(b, 0.0, 0.4, 600.0, 1400.0, 0.35, 6.0, 2)
+	_tone(b, 0.15, 0.25, 160.0, 60.0, 0.7, 10.0)
+	_streams["counter"] = _wav(b)
