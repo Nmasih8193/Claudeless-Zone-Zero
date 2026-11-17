@@ -20,7 +20,7 @@ class JNode:
 	var rot: Vector3 = Vector3.ZERO
 	var rotv: Vector3 = Vector3.ZERO
 
-static var _outline: StandardMaterial3D
+static var _outline: ShaderMaterial
 
 var _root: Node3D
 var _hips: Node3D
@@ -59,26 +59,14 @@ var _sq_v: float = 0.0
 var _flash: float = 0.0
 var _flash_on: bool = false
 var _swing_dir: float = 1.0
+var _rim_color: Color = Color(1.0, 1.0, 1.0)
 
 # ------------------------------------------------------------------ helpers
-func _mat(color: Color, outline: bool = true, emit: float = 0.0) -> StandardMaterial3D:
+func _mat(color: Color, outline: bool = true, emit: float = 0.0) -> ShaderMaterial:
 	if _outline == null:
-		_outline = StandardMaterial3D.new()
-		_outline.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		_outline.albedo_color = Color(0.07, 0.05, 0.09)
-		_outline.cull_mode = BaseMaterial3D.CULL_FRONT
-		_outline.grow = true
-		_outline.grow_amount = 0.012
-	var m := StandardMaterial3D.new()
-	m.albedo_color = color
-	m.roughness = 0.85
-	m.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
-	m.specular_mode = BaseMaterial3D.SPECULAR_TOON
-	if emit > 0.0:
-		m.emission_enabled = true
-		m.emission = color
-		m.emission_energy_multiplier = emit
-	m.set_meta("emit", emit)
+		_outline = Fx.outline_mat(0.011)
+	var m := Fx.toon_mat(color, emit, 0.45, _rim_color)
+	m.set_shader_parameter("spec", 0.25 if color.v < 0.35 else 0.12)
 	if outline:
 		m.next_pass = _outline
 	_mats.append(m)
@@ -180,12 +168,15 @@ func setup(cname: String) -> void:
 	add_child(_root)
 	match cname:
 		"NICOLE":
+			_rim_color = Color(1.0, 0.62, 0.85)
 			_build_rig(Color(0.98, 0.85, 0.78), Color(0.96, 0.62, 0.72), Color(0.55, 0.8, 0.35), Color(0.92, 0.92, 0.94), Color(0.13, 0.13, 0.15), Color(0.1, 0.1, 0.12), Color(0.11, 0.11, 0.13), Color(0.12, 0.12, 0.14))
 			_extras_nicole()
 		"ANBY":
+			_rim_color = Color(1.0, 0.95, 0.55)
 			_build_rig(Color(0.98, 0.88, 0.82), Color(0.88, 0.9, 0.95), Color(0.95, 0.65, 0.2), Color(0.55, 0.82, 0.18), Color(0.13, 0.14, 0.15), Color(0.1, 0.1, 0.12), Color(0.12, 0.12, 0.14), Color(0.55, 0.82, 0.18))
 			_extras_anby()
 		_:
+			_rim_color = Color(0.6, 0.9, 1.0)
 			_build_rig(Color(0.98, 0.9, 0.86), Color(0.1, 0.09, 0.12), Color(0.85, 0.15, 0.2), Color(0.12, 0.11, 0.15), Color(0.12, 0.11, 0.15), Color(0.1, 0.09, 0.12), Color(0.3, 0.22, 0.22), Color(0.1, 0.1, 0.12))
 			_extras_ellen()
 
@@ -401,7 +392,8 @@ func _step_body(delta: float, st: int, speed: float) -> void:
 		f = clampf(speed / GameConfig.PLAYER_SPEED, 0.0, 1.0)
 		_run_phase += delta * (7.0 + speed * 0.9)
 	var s := sin(_run_phase)
-	var pitch_t := -0.12 * f
+	var sprint := clampf((speed - GameConfig.PLAYER_SPEED) / (GameConfig.SPRINT_SPEED - GameConfig.PLAYER_SPEED), 0.0, 1.0) if moving else 0.0
+	var pitch_t := -0.12 * f - 0.2 * sprint
 	var hop_t := absf(s) * 0.07 * f
 	var sq_t := 0.012 * sin(_t * 2.2)
 	match st:
@@ -444,28 +436,18 @@ func _step_body(delta: float, st: int, speed: float) -> void:
 	_hips.position.y = 1.05
 	_torso.rotation.y = s * 0.12 * f + _atk * 0.3
 	_torso.rotation.x = -0.05 * f
-	_arm_r.rotation = _pose_arm_r + Vector3(-s * 0.6 * f + _atk, 0.0, 0.0)
-	_arm_l.rotation = _pose_arm_l + Vector3(s * 0.6 * f + 0.02 * breathe, 0.0, 0.0)
+	_arm_r.rotation = _pose_arm_r.lerp(Vector3(-0.6, 0.0, 0.15), sprint * 0.7) + Vector3(-s * 0.6 * f + _atk, 0.0, 0.0)
+	_arm_l.rotation = _pose_arm_l.lerp(Vector3(-0.6, 0.0, -0.15), sprint * 0.7) + Vector3(s * 0.6 * f + 0.02 * breathe, 0.0, 0.0)
 	_elbow_r.rotation.x = _pose_elbow_r
 	_elbow_l.rotation.x = _pose_elbow_l
 	_head.rotation.x = -0.05 * breathe - _pitch * 0.4
 	# hurt flash
-	if _flash > 0.0:
+	if _flash > 0.0 or _flash_on:
 		_flash = maxf(_flash - delta * 5.0, 0.0)
-		_flash_on = true
+		_flash_on = _flash > 0.0
 		for mv in _mats:
-			var m: StandardMaterial3D = mv
-			m.emission_enabled = true
-			m.emission = Color(1.0, 0.2, 0.15)
-			m.emission_energy_multiplier = _flash * 1.6
-	elif _flash_on:
-		_flash_on = false
-		for mv in _mats:
-			var m: StandardMaterial3D = mv
-			var e: float = m.get_meta("emit")
-			m.emission_enabled = e > 0.0
-			m.emission = m.albedo_color
-			m.emission_energy_multiplier = e
+			var m: ShaderMaterial = mv
+			m.set_shader_parameter("flash", _flash * 1.4)
 
 # ------------------------------------------------------------------ events
 func _kick(strength: float) -> void:
