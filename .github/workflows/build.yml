@@ -22,8 +22,9 @@ jobs:
 
       - name: Install export templates
         run: |
-          mkdir -v -p ~/.local/share/godot/export_templates/
-          mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          mkdir -p ~/.local/share/godot/export_templates
+          cp -r /root/.local/share/godot/export_templates/. ~/.local/share/godot/export_templates/
+          ls -R ~/.local/share/godot/export_templates | head -20
 
       - name: Import project assets
         run: |
