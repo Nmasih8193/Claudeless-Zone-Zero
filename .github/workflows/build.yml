@@ -9,37 +9,42 @@ on:
 
 env:
   GAME_NAME: DeadlyAssault
+  GODOT_VERSION: "4.7.2"
+  GODOT_RELEASE: "stable"
 
 jobs:
   export:
     name: Export Windows & Linux
     runs-on: ubuntu-22.04
-    container:
-      image: barichello/godot-ci:4.3   # Godot 4.3 + export templates; change the tag to upgrade
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install export templates
+      - name: Download Godot and export templates
         run: |
-          mkdir -p ~/.local/share/godot/export_templates
-          cp -r /root/.local/share/godot/export_templates/. ~/.local/share/godot/export_templates/
-          ls -R ~/.local/share/godot/export_templates | head -20
+          BASE="https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-${GODOT_RELEASE}"
+          curl -fsSL -o godot.zip "$BASE/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64.zip"
+          curl -fsSL -o templates.tpz "$BASE/Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_export_templates.tpz"
+          unzip -q godot.zip
+          sudo mv "Godot_v${GODOT_VERSION}-${GODOT_RELEASE}_linux.x86_64" /usr/local/bin/godot
+          sudo chmod +x /usr/local/bin/godot
+          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_RELEASE}"
+          unzip -q templates.tpz -d tpl
+          mv tpl/templates/* "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.${GODOT_RELEASE}/"
+          godot --version
 
       - name: Import project assets
-        run: |
-          # first import generates .godot/ (art, audio). It can exit non-zero harmlessly, so don't fail here.
-          godot --headless --verbose --import || true
+        run: godot --headless --import || true
 
       - name: Export Windows (x86_64)
         run: |
           mkdir -p build/windows
-          godot --headless --verbose --export-release "Windows Desktop" "build/windows/${GAME_NAME}.exe"
+          godot --headless --export-release "Windows Desktop" "build/windows/${GAME_NAME}.exe"
 
       - name: Export Linux (x86_64)
         run: |
           mkdir -p build/linux
-          godot --headless --verbose --export-release "Linux" "build/linux/${GAME_NAME}.x86_64"
+          godot --headless --export-release "Linux" "build/linux/${GAME_NAME}.x86_64"
           chmod +x "build/linux/${GAME_NAME}.x86_64"
 
       - name: Verify outputs
@@ -50,32 +55,28 @@ jobs:
 
       - name: Package
         run: |
-          command -v zip >/dev/null || (apt-get update && apt-get install -y zip)
           (cd build/windows && zip -r "../${GAME_NAME}-windows-x86_64.zip" .)
-          tar -czf "build/${GAME_NAME}-linux-x86_64.tar.gz" -C build/linux .   # tar keeps the executable bit
+          tar -czf "build/${GAME_NAME}-linux-x86_64.tar.gz" -C build/linux .
 
-      - name: Upload Windows build
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.GAME_NAME }}-windows-x86_64
           path: build/${{ env.GAME_NAME }}-windows-x86_64.zip
 
-      - name: Upload Linux build
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.GAME_NAME }}-linux-x86_64
           path: build/${{ env.GAME_NAME }}-linux-x86_64.tar.gz
 
   release:
-    name: Publish GitHub Release (tags only)
+    name: Publish GitHub Release
     needs: export
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download builds
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
@@ -83,5 +84,8 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('build-{0}', github.run_number) }}
+          name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('Build {0}', github.run_number) }}
+          target_commitish: ${{ github.sha }}
           files: dist/*
           generate_release_notes: true
