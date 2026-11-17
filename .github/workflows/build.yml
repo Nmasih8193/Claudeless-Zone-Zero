@@ -1,0 +1,86 @@
+name: Build (Windows + Linux x64)
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  GAME_NAME: DeadlyAssault
+
+jobs:
+  export:
+    name: Export Windows & Linux
+    runs-on: ubuntu-22.04
+    container:
+      image: barichello/godot-ci:4.3   # Godot 4.3 + export templates; change the tag to upgrade
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install export templates
+        run: |
+          mkdir -v -p ~/.local/share/godot/export_templates/
+          mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+
+      - name: Import project assets
+        run: |
+          # first import generates .godot/ (art, audio). It can exit non-zero harmlessly, so don't fail here.
+          godot --headless --verbose --import || true
+
+      - name: Export Windows (x86_64)
+        run: |
+          mkdir -p build/windows
+          godot --headless --verbose --export-release "Windows Desktop" "build/windows/${GAME_NAME}.exe"
+
+      - name: Export Linux (x86_64)
+        run: |
+          mkdir -p build/linux
+          godot --headless --verbose --export-release "Linux" "build/linux/${GAME_NAME}.x86_64"
+          chmod +x "build/linux/${GAME_NAME}.x86_64"
+
+      - name: Verify outputs
+        run: |
+          test -s "build/windows/${GAME_NAME}.exe"
+          test -s "build/linux/${GAME_NAME}.x86_64"
+          ls -lh build/windows build/linux
+
+      - name: Package
+        run: |
+          command -v zip >/dev/null || (apt-get update && apt-get install -y zip)
+          (cd build/windows && zip -r "../${GAME_NAME}-windows-x86_64.zip" .)
+          tar -czf "build/${GAME_NAME}-linux-x86_64.tar.gz" -C build/linux .   # tar keeps the executable bit
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.GAME_NAME }}-windows-x86_64
+          path: build/${{ env.GAME_NAME }}-windows-x86_64.zip
+
+      - name: Upload Linux build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.GAME_NAME }}-linux-x86_64
+          path: build/${{ env.GAME_NAME }}-linux-x86_64.tar.gz
+
+  release:
+    name: Publish GitHub Release (tags only)
+    needs: export
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download builds
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
